@@ -53,10 +53,15 @@ public:
     }
 
     double operator()(double x) const override {
-        if (x <= a_ || x >= d_) return 0.0;
+        // The plateau check must come first: an open-ended shoulder is
+        // commonly modeled with a == b (left) or c == d (right), e.g. a
+        // "high" term pinned to the top of the universe of discourse. If
+        // the out-of-range check ran first, `x >= d_` would misfire at
+        // exactly x == c == d and wrongly report 0 instead of 1.
         if (x >= b_ && x <= c_) return 1.0;
-        if (x < b_) return (b_ == a_) ? 1.0 : (x - a_) / (b_ - a_);
-        return (d_ == c_) ? 1.0 : (d_ - x) / (d_ - c_);
+        if (x < a_ || x > d_) return 0.0;
+        if (x < b_) return (x - a_) / (b_ - a_);
+        return (d_ - x) / (d_ - c_);
     }
 
     std::unique_ptr<MembershipFunction> clone() const override {

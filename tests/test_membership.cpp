@@ -45,6 +45,19 @@ TEST_CASE(sshape_and_zshape_are_complementary_at_endpoints) {
     }
 }
 
+TEST_CASE(trapezoidal_degenerate_shoulder_holds_at_universe_boundary) {
+    // A right shoulder pinned to the top of the universe (c == d) must
+    // stay fully membered at x == d, not drop to 0: this is how an
+    // open-ended "high"/"good" term is conventionally modeled.
+    mf::Trapezoidal highShoulder(60.0, 80.0, 100.0, 100.0);
+    CHECK_NEAR(highShoulder(100.0), 1.0, 1e-9);
+    CHECK_NEAR(highShoulder(80.0), 1.0, 1e-9);
+
+    // Symmetric case on the left: a == b pinned to the bottom.
+    mf::Trapezoidal lowShoulder(0.0, 0.0, 20.0, 45.0);
+    CHECK_NEAR(lowShoulder(0.0), 1.0, 1e-9);
+}
+
 TEST_CASE(singleton_only_matches_value) {
     mf::Singleton s(4.2);
     CHECK_NEAR(s(4.2), 1.0, 1e-9);
