@@ -113,32 +113,47 @@ def connect_and_prepare(connect_str, takeoff_alt_m):
     print("Setting mode GUIDED ...")
     master.set_mode(master.mode_mapping()["GUIDED"])
 
-    print("Arming ...")
-    master.arducopter_arm()
-
-    def armed_check():
-        # motors_armed() only reflects the last HEARTBEAT this connection
-        # has processed, so the wait must actively pump for one each poll
-        # rather than just re-checking a value that will never change.
-        master.recv_match(type="HEARTBEAT", blocking=True, timeout=1.0)
-        return master.motors_armed()
-
-    wait_for_condition(armed_check, timeout_s=15, description="arm confirmation")
-
-    print(f"Taking off to {takeoff_alt_m} m ...")
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
-        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, 0, 0, 0, takeoff_alt_m)
-
+    # ArduPilot rejects both arming ("System not initialised") and takeoff
+    # (MAV_CMD_NAV_TAKEOFF failing with MAV_RESULT_FAILED because the EKF
+    # hasn't set its origin yet) until its EKF/AHRS finish converging --
+    # confirmed via COMMAND_ACK/STATUSTEXT during bring-up: a takeoff sent
+    # right after a successful arm can still fail because EKF origin isn't
+    # set for another few seconds, after which ArduCopter auto-disarms from
+    # sitting idle on the ground. None of this happens on a fixed schedule
+    # relative to the first heartbeat, so rather than compute readiness,
+    # keep retrying arm-then-takeoff as a unit (re-arming if a previous
+    # attempt's idle disarm kicked in) until it actually leaves the ground.
+    print("Arming and taking off (retrying until the flight controller finishes EKF/AHRS init) ...")
     state = VehicleState()
+    last_takeoff_attempt = 0.0
+    last_arm_attempt = 0.0
 
-    def reached_altitude():
-        msg = master.recv_match(type=["GLOBAL_POSITION_INT"], blocking=True, timeout=1.0)
+    def armed_and_climbing():
+        nonlocal last_takeoff_attempt, last_arm_attempt
+        msg = master.recv_match(type=["GLOBAL_POSITION_INT", "HEARTBEAT"], blocking=True, timeout=1.0)
         if msg is not None:
             state.absorb(msg, master.mav)
-        return state.relative_alt_m > takeoff_alt_m * 0.8
+        if state.relative_alt_m > takeoff_alt_m * 0.8:
+            return True
+        # Throttle both retries (not every ~1s poll): re-issuing arm too
+        # rapidly gave noticeably worse results in testing than a single
+        # attempt every couple of seconds while ArduPilot boots.
+        if not master.motors_armed():
+            if time.time() - last_arm_attempt > 2.0:
+                master.arducopter_arm()
+                last_arm_attempt = time.time()
+        # Re-send takeoff periodically (not every poll) rather than only
+        # once: an early attempt can be rejected while EKF origin is still
+        # settling, and re-issuing the same command once airborne is
+        # harmless.
+        elif time.time() - last_takeoff_attempt > 4.0:
+            master.mav.command_long_send(
+                master.target_system, master.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, 0, 0, 0, takeoff_alt_m)
+            last_takeoff_attempt = time.time()
+        return False
 
-    wait_for_condition(reached_altitude, timeout_s=30, description="takeoff altitude")
+    wait_for_condition(armed_and_climbing, timeout_s=90, poll_s=0.5, description="arm + takeoff")
     print("Airborne -- handing control to the fuzzylib guidance controller.\n")
     return master, state
 
