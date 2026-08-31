@@ -92,11 +92,38 @@ class VehicleState:
         }
 
 
+def configure_for_sitl(master):
+    """Sets parameters a real vehicle would already have from its initial
+    setup/calibration, but a freshly-wiped SITL instance (`-w`) starts
+    without: FRAME_CLASS/FRAME_TYPE (arming refuses with "Check frame
+    class and type" otherwise -- sim_vehicle.py normally injects these via
+    its -f/--frame option, which launching the raw binary bypasses), and
+    ARMING_CHECK/DISARM_DELAY, disabled so a simulated vehicle with no real
+    accelerometer calibration or GPS-lock history isn't blocked by safety
+    checks that exist for real hardware. NEVER do this on a real vehicle.
+    """
+    for name, value, ptype in (
+        ("FRAME_CLASS", 1, mavutil.mavlink.MAV_PARAM_TYPE_INT8),  # 1 = quad
+        ("FRAME_TYPE", 1, mavutil.mavlink.MAV_PARAM_TYPE_INT8),  # 1 = X
+        ("ARMING_CHECK", 0, mavutil.mavlink.MAV_PARAM_TYPE_INT32),  # SITL only
+        ("DISARM_DELAY", 0, mavutil.mavlink.MAV_PARAM_TYPE_INT8),  # don't auto-disarm while EKF converges
+    ):
+        master.mav.param_set_send(master.target_system, master.target_component, name.encode(), value, ptype)
+    # Drain the resulting PARAM_VALUE acks (and whatever else arrives)
+    # rather than assuming a fixed delay is enough for all four to land.
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        master.recv_match(blocking=True, timeout=0.5)
+
+
 def connect_and_prepare(connect_str, takeoff_alt_m):
     print(f"Connecting to ArduPilot at {connect_str} ...")
     master = mavutil.mavlink_connection(connect_str)
     master.wait_heartbeat()
     print(f"Heartbeat received (system {master.target_system}, component {master.target_component}).")
+
+    print("Applying SITL-only setup parameters (frame class/type, disabling ground-only safety checks) ...")
+    configure_for_sitl(master)
 
     # Stream LOCAL_POSITION_NED and ATTITUDE at 10 Hz explicitly, rather
     # than assuming whatever default rate the vehicle happens to be
@@ -153,7 +180,7 @@ def connect_and_prepare(connect_str, takeoff_alt_m):
             last_takeoff_attempt = time.time()
         return False
 
-    wait_for_condition(armed_and_climbing, timeout_s=90, poll_s=0.5, description="arm + takeoff")
+    wait_for_condition(armed_and_climbing, timeout_s=240, poll_s=0.5, description="arm + takeoff")
     print("Airborne -- handing control to the fuzzylib guidance controller.\n")
     return master, state
 

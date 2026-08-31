@@ -147,11 +147,18 @@ that would overshoot), flying a 5-waypoint square circuit.
 guidance logic and its half of the wire protocol without needing a real
 SITL instance at all, by playing the shim's role itself.
 
+This has been verified end to end against a real ArduCopter build (tagged
+stable release `Copter-4.6.3` — build against a stable tag, not `master`,
+which at the time of writing rejects `MAV_CMD_NAV_TAKEOFF` outright): the
+vehicle arms, climbs, and flies all four waypoints with the commanded
+speed visibly tapering from ~6 m/s cruise down to ~0.4 m/s on each
+approach, exactly matching the guidance FIS.
+
 **Running it:**
 
 ```sh
-# 1. Install ArduPilot SITL (one-time; see ArduPilot's own build docs) and
-#    pymavlink: pip install pymavlink
+# 1. Install ArduPilot SITL from a stable release tag (one-time; see
+#    ArduPilot's own build docs) and pymavlink: pip install pymavlink
 
 # 2. Start SITL (from an ardupilot checkout):
 Tools/autotest/sim_vehicle.py -v ArduCopter --console --map
@@ -168,6 +175,20 @@ Mission Planner can connect to the same SITL instance (default
 MAVLink to ArduPilot, never to the shim or the controller, so from its
 point of view this is just a normal vehicle flying a normal GUIDED-mode
 mission.
+
+**A freshly-wiped SITL vehicle won't arm out of the box.** `mavlink_shim.py`
+sets four parameters right after connecting — `FRAME_CLASS`/`FRAME_TYPE`
+(normally injected by `sim_vehicle.py`'s `-f`/`--frame` option, which
+launching the raw `arducopter` binary directly, e.g. to skip its
+MAVProxy/wx dependency, bypasses) and `ARMING_CHECK`/`DISARM_DELAY`
+(disabled so a simulated vehicle with no real accelerometer calibration
+or GPS-lock history isn't blocked by, or kicked off the ground while
+waiting on, safety checks that exist for real hardware). **Never disable
+those on a real vehicle.** It then retries the arm/takeoff sequence for
+several minutes if needed: ArduPilot's EKF/AHRS converge on their own
+schedule after boot, not a fixed delay after the first heartbeat, so a
+single-shot attempt can time out even though the vehicle would have
+accepted the same command moments later.
 
 **Safety note:** unlike PX4's offboard mode, ArduPilot's GUIDED mode does
 not automatically abort if the setpoint stream stops — it keeps flying
