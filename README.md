@@ -168,13 +168,19 @@ Tools/autotest/sim_vehicle.py -v ArduCopter --console --map
 
 # 4. Start the MAVLink shim:
 python3 tools/ardupilot_bridge/mavlink_shim.py
+
+# 5. Point Mission Planner at the same SITL instance, at any point in
+#    this sequence: connection-type dropdown (top right) -> UDP -> Connect
+#    -> host 127.0.0.1, port 14550 (sim_vehicle.py's default MAVProxy
+#    output for exactly this purpose). If Mission Planner runs on a
+#    different machine/VM than SITL, use that machine's own address
+#    instead of 127.0.0.1, and make sure port 14550 is reachable from it.
 ```
 
-Mission Planner can connect to the same SITL instance (default
-`udp:127.0.0.1:14550`) at any point in that sequence — it only ever talks
-MAVLink to ArduPilot, never to the shim or the controller, so from its
-point of view this is just a normal vehicle flying a normal GUIDED-mode
-mission.
+Mission Planner only ever talks MAVLink to ArduPilot — never to the shim
+or the controller — so from its point of view this is just a normal
+vehicle flying a normal GUIDED-mode mission; it can attach at any point in
+the sequence above, before or after the bridge/shim are running.
 
 **A freshly-wiped SITL vehicle won't arm out of the box.** `mavlink_shim.py`
 sets four parameters right after connecting — `FRAME_CLASS`/`FRAME_TYPE`
