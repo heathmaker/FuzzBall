@@ -110,8 +110,8 @@ differ only in how a rule's contribution becomes a crisp number:
 | `water_dam` | Mamdani gate control holding a reservoir in a safe band through a scripted storm, on a simple tank simulation. |
 | `inverted_pendulum` | A 25-rule TSK controller stabilizing a nonlinear cart-pole, then a **GA tuning the FIS's force gain** against a closed-loop cost — fuzzy + genetic algorithm. |
 | `car_platooning` | A 9-rule gain-scheduled TSK adaptive-cruise-control law, reused unmodified across a 5-vehicle chain, absorbing a hard-brake disturbance. |
-| `quadcopter` | A fuzzy Mamdani *scheduler* blending a gentle and an aggressive PID controller per axis — the canonical fuzzy-PID hybrid — stabilizing roll/pitch/yaw. |
-| `drone_swarm` | Boids-style flocking where each drone classifies local crowding via an **HDC prototype block** and uses it to gain-schedule separation/cohesion — fuzzy-style scheduling driven by hyperdimensional computing instead of a FIS. |
+| `quadcopter` | A full **6DoF** rigid-body flight sim (quaternion attitude, 4-motor thrust mixing) flown by a cascaded position-PID -> fuzzy-scheduled-PID-attitude -> motor-mixer controller — the canonical fuzzy-PID hybrid, now driving a real 3D vehicle instead of one decoupled axis. |
+| `drone_swarm` | 3D boids-style flocking past static obstacles: each drone classifies local crowding via an **HDC prototype block** to gain-schedule separation/cohesion, and separately runs a **Mamdani FIS** on obstacle clearance to gain-schedule avoidance — fuzzy logic and HDC doing the same kind of local-context scheduling side by side. |
 
 Each example is a single, runnable, verbose-output `.cpp` file meant to be
 read top to bottom as documentation of one usage pattern.
