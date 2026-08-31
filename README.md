@@ -116,6 +116,66 @@ differ only in how a rule's contribution becomes a crisp number:
 Each example is a single, runnable, verbose-output `.cpp` file meant to be
 read top to bottom as documentation of one usage pattern.
 
+## Flying a real ArduPilot vehicle in SITL (and Mission Planner)
+
+`examples/ardupilot_bridge/` links a fuzzylib controller to a real
+ArduPilot vehicle running in Software In The Loop, so it can be watched
+in Mission Planner (or QGroundControl, or plain MAVProxy) like any other
+MAVLink vehicle. It's a **guidance-layer** link, not a full replacement of
+ArduPilot's flight stack: ArduPilot's own EKF, attitude controller, and
+motor mixing keep flying the vehicle exactly as they always do — our
+controller just streams GUIDED-mode velocity/yaw setpoints, the same way
+a companion computer (a Pi running ROS2/MAVROS, say) commands a real
+ArduPilot vehicle in the field.
+
+**Why two processes.** MAVLink is a binary protocol with per-message CRCs
+that are impractical to get right by hand (and pointless to — this is a
+solved, "use the reference implementation" problem, not a fuzzy-logic
+one). So a small Python script, `tools/ardupilot_bridge/mavlink_shim.py`,
+owns all MAVLink traffic via [pymavlink](https://github.com/ArduPilot/pymavlink)
+(the same library ArduPilot's own test suite and MAVProxy are built on):
+it does the one-time handshake (wait for heartbeat, switch to GUIDED, arm,
+take off), then in a loop relays vehicle telemetry to our C++ controller
+and its velocity/yaw replies back to ArduPilot as real
+`SET_POSITION_TARGET_LOCAL_NED` messages — over a local JSON-over-UDP
+protocol documented at the top of both files. The C++ side,
+`examples/ardupilot_bridge/ardupilot_bridge.cpp`, is pure fuzzylib: a
+3-rule zero-order Sugeno FIS maps distance-to-waypoint to an approach
+speed that tapers smoothly on arrival (instead of a constant cruise speed
+that would overshoot), flying a 5-waypoint square circuit.
+`tools/ardupilot_bridge/test_protocol.py` exercises the controller's
+guidance logic and its half of the wire protocol without needing a real
+SITL instance at all, by playing the shim's role itself.
+
+**Running it:**
+
+```sh
+# 1. Install ArduPilot SITL (one-time; see ArduPilot's own build docs) and
+#    pymavlink: pip install pymavlink
+
+# 2. Start SITL (from an ardupilot checkout):
+Tools/autotest/sim_vehicle.py -v ArduCopter --console --map
+
+# 3. Start the fuzzylib guidance controller:
+./build/examples/ardupilot_bridge
+
+# 4. Start the MAVLink shim:
+python3 tools/ardupilot_bridge/mavlink_shim.py
+```
+
+Mission Planner can connect to the same SITL instance (default
+`udp:127.0.0.1:14550`) at any point in that sequence — it only ever talks
+MAVLink to ArduPilot, never to the shim or the controller, so from its
+point of view this is just a normal vehicle flying a normal GUIDED-mode
+mission.
+
+**Safety note:** unlike PX4's offboard mode, ArduPilot's GUIDED mode does
+not automatically abort if the setpoint stream stops — it keeps flying
+the last commanded velocity. That's an acceptable simplification for
+SITL (which is what this bridge is built and tested against) but would
+need a watchdog (fail to RTL/hover on stale telemetry) before pointing it
+at a real vehicle.
+
 ## Extending it
 
 - **New membership function**: subclass `MembershipFunction`

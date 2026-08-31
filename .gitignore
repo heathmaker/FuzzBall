@@ -6,3 +6,5 @@ cmake-build-*/
 *.out
 .cache/
 compile_commands.json
+__pycache__/
+*.pyc
