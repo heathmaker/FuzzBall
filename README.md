@@ -1,4 +1,4 @@
-# FuzzyRedo
+# FuzzBall
 
 A modular C++17 fuzzy logic library that scales from a basic Mamdani fuzzy
 inference system (FIS) up to complex Takagi-Sugeno-Kang (TSK/Sugeno)
