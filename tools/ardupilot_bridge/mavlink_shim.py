@@ -30,6 +30,7 @@ not included here since this bridge is written and tested against SITL.
 
 import argparse
 import json
+import math
 import socket
 import sys
 import time
@@ -43,6 +44,24 @@ _ACC_IGNORE = 0b0000000111000000  # ignore ax, ay, az
 _YAW_RATE_IGNORE = 0b0000100000000000  # ignore yaw_rate
 VELOCITY_AND_YAW_MASK = _POS_IGNORE | _ACC_IGNORE | _YAW_RATE_IGNORE
 
+_EARTH_RADIUS_M = 6378137.0  # WGS84 equatorial radius
+
+
+def latlon_to_local_ne(ref_lat_deg, ref_lon_deg, lat_deg, lon_deg):
+    """Equirectangular approximation converting a (lat, lon) into local
+    north/east meters relative to a reference point. Accurate to well
+    under 1% at swarm scales (tens to hundreds of meters) -- survey-grade
+    precision isn't the point; a *shared* reference is. Each vehicle's
+    LOCAL_POSITION_NED is relative to its own EKF origin, so raw local
+    positions from different vehicles aren't comparable at all; this is
+    what makes them comparable, using only each vehicle's own GPS fix
+    (no assumption that vehicles share a home location -- the thing that
+    doesn't survive contact with real, physically separate hardware)."""
+    ref_lat_rad = math.radians(ref_lat_deg)
+    north = math.radians(lat_deg - ref_lat_deg) * _EARTH_RADIUS_M
+    east = math.radians(lon_deg - ref_lon_deg) * _EARTH_RADIUS_M * math.cos(ref_lat_rad)
+    return north, east
+
 
 def wait_for_condition(predicate, timeout_s, poll_s=0.2, description="condition"):
     deadline = time.time() + timeout_s
@@ -55,9 +74,23 @@ def wait_for_condition(predicate, timeout_s, poll_s=0.2, description="condition"
 
 
 class VehicleState:
-    """Latest known telemetry, updated as MAVLink messages arrive."""
+    """Latest known telemetry, updated as MAVLink messages arrive.
 
-    def __init__(self):
+    Position source depends on `common_origin`:
+      - None (default, single-vehicle use): position comes straight from
+        LOCAL_POSITION_NED, relative to this vehicle's own EKF origin.
+      - (lat, lon, alt_m) (multi-vehicle/swarm use): position is instead
+        derived from this vehicle's own absolute GPS fix
+        (GLOBAL_POSITION_INT), converted into meters relative to the
+        shared reference point every swarm member is given -- the only
+        way positions from vehicles with independent EKF origins (i.e.
+        any two real, physically separate vehicles) are comparable at
+        all. Velocity always comes from LOCAL_POSITION_NED regardless:
+        NED axes are globally north/east/down-aligned for every vehicle,
+        so velocity needs no such conversion -- only position does.
+    """
+
+    def __init__(self, common_origin=None):
         self.pos_n = self.pos_e = self.pos_d = 0.0
         self.vel_n = self.vel_e = self.vel_d = 0.0
         self.yaw = 0.0
@@ -65,17 +98,24 @@ class VehicleState:
         self.armed = False
         self.mode = "UNKNOWN"
         self.have_position = False
+        self.common_origin = common_origin
 
     def absorb(self, msg, mav):
         msg_type = msg.get_type()
         if msg_type == "LOCAL_POSITION_NED":
-            self.pos_n, self.pos_e, self.pos_d = msg.x, msg.y, msg.z
             self.vel_n, self.vel_e, self.vel_d = msg.vx, msg.vy, msg.vz
-            self.have_position = True
+            if self.common_origin is None:
+                self.pos_n, self.pos_e, self.pos_d = msg.x, msg.y, msg.z
+                self.have_position = True
         elif msg_type == "ATTITUDE":
             self.yaw = msg.yaw
         elif msg_type == "GLOBAL_POSITION_INT":
             self.relative_alt_m = msg.relative_alt / 1000.0
+            if self.common_origin is not None:
+                ref_lat, ref_lon, ref_alt_m = self.common_origin
+                self.pos_n, self.pos_e = latlon_to_local_ne(ref_lat, ref_lon, msg.lat / 1e7, msg.lon / 1e7)
+                self.pos_d = ref_alt_m - (msg.alt / 1000.0)  # alt is MSL; down is negative-up
+                self.have_position = True
         elif msg_type == "HEARTBEAT":
             self.armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
             self.mode = mavutil.mode_string_v10(msg)
@@ -116,7 +156,7 @@ def configure_for_sitl(master):
         master.recv_match(blocking=True, timeout=0.5)
 
 
-def connect_and_prepare(connect_str, takeoff_alt_m):
+def connect_and_prepare(connect_str, takeoff_alt_m, common_origin=None):
     print(f"Connecting to ArduPilot at {connect_str} ...")
     master = mavutil.mavlink_connection(connect_str)
     master.wait_heartbeat()
@@ -151,7 +191,7 @@ def connect_and_prepare(connect_str, takeoff_alt_m):
     # keep retrying arm-then-takeoff as a unit (re-arming if a previous
     # attempt's idle disarm kicked in) until it actually leaves the ground.
     print("Arming and taking off (retrying until the flight controller finishes EKF/AHRS init) ...")
-    state = VehicleState()
+    state = VehicleState(common_origin=common_origin)
     last_takeoff_attempt = 0.0
     last_arm_attempt = 0.0
 
@@ -241,9 +281,24 @@ def main():
     parser.add_argument("--takeoff-alt", type=float, default=3.0,
                          help="Initial takeoff altitude in meters before handing off to the guidance FIS")
     parser.add_argument("--loop-hz", type=float, default=10.0)
+    parser.add_argument("--common-origin", default=None,
+                         help="lat,lon,alt_m shared reference point. Required for multi-vehicle use "
+                              "(e.g. the swarm bridge): converts THIS vehicle's own GPS fix into the "
+                              "same local frame every other swarm member also converts into, since "
+                              "each vehicle's LOCAL_POSITION_NED is relative to its own independent "
+                              "EKF origin and so is not otherwise comparable across vehicles. Pass "
+                              "the exact same value to every shim in a swarm. Omit for single-vehicle "
+                              "use (position then comes straight from LOCAL_POSITION_NED).")
     args = parser.parse_args()
 
-    master, state = connect_and_prepare(args.connect, args.takeoff_alt)
+    common_origin = None
+    if args.common_origin is not None:
+        parts = args.common_origin.split(",")
+        if len(parts) != 3:
+            parser.error("--common-origin must be 'lat,lon,alt_m'")
+        common_origin = tuple(float(p) for p in parts)
+
+    master, state = connect_and_prepare(args.connect, args.takeoff_alt, common_origin=common_origin)
     try:
         bridge_loop(master, state, (args.controller_host, args.controller_port), args.loop_hz)
     except KeyboardInterrupt:
