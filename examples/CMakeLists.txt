@@ -12,3 +12,6 @@ fuzzylib_add_example(drone_swarm          drone_swarm/drone_swarm.cpp)
 
 fuzzylib_add_example(ardupilot_bridge     ardupilot_bridge/ardupilot_bridge.cpp)
 target_include_directories(ardupilot_bridge PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
+
+fuzzylib_add_example(ardupilot_swarm_bridge ardupilot_bridge/ardupilot_swarm_bridge.cpp)
+target_include_directories(ardupilot_swarm_bridge PRIVATE ${CMAKE_SOURCE_DIR}/third_party)

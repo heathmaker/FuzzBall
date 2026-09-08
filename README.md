@@ -203,6 +203,92 @@ SITL (which is what this bridge is built and tested against) but would
 need a watchdog (fail to RTL/hover on stale telemetry) before pointing it
 at a real vehicle.
 
+## Flying a real multi-vehicle ArduPilot swarm in SITL
+
+`examples/ardupilot_bridge/ardupilot_swarm_bridge.cpp` runs the same
+boids + HDC-gain-scheduled flocking behavior as `examples/drone_swarm`
+(separation/cohesion/alignment/goal-seeking, with an `HDCPrototypeBlock`
+scheduling the separation/cohesion gains off local crowding) — but over
+several real, independent ArduCopter SITL instances instead of that
+example's own internal rigid-body simulation. One controller process
+manages N agents at once: it opens one UDP port per agent (paired with its
+own `mavlink_shim.py` and SITL instance, same wire protocol as the
+single-vehicle bridge), caches every agent's latest reported position and
+velocity, and on each agent's state update recomputes the full flock's
+behavior using whatever neighbor data is freshest — then replies with just
+that agent's velocity setpoint.
+
+**Coordinate frames are the hard part of "multi-vehicle."** Every vehicle's
+`LOCAL_POSITION_NED` is relative to its own EKF origin, so raw positions
+from different vehicles are never directly comparable — true in SITL, and,
+more importantly, true of any two physically separate real vehicles (which
+obviously can't share a GPS origin the way co-located SITL instances
+technically could). `mavlink_shim.py` fixes this with a `--common-origin
+lat,lon,alt_m` option: every shim projects its own vehicle's absolute GPS
+fix (`GLOBAL_POSITION_INT`) onto the same shared flat-Earth reference point
+using an equirectangular projection, so all agents' reported positions land
+in one common local frame regardless of how far apart their actual homes
+are. `launch_swarm_sitl.sh` gives each SITL instance a genuinely distinct
+home (a small staged launch line, the way real vehicles would actually be
+laid out) and prints the shared reference point for `launch_swarm_shims.sh`
+to pass to every shim.
+
+**Running it (3 agents by default):**
+
+```sh
+# 1. From an ArduPilot checkout, launch the SITL swarm (each instance N's
+#    MAVLink lands on udp:127.0.0.1:14550+10N, ArduPilot's usual per-
+#    instance offset):
+NUM_AGENTS=3 bash /path/to/fuzzylib/tools/ardupilot_bridge/launch_swarm_sitl.sh
+
+# 2. Start the swarm guidance controller (one process, N UDP ports):
+./build/examples/ardupilot_swarm_bridge
+
+# 3. Start the shims (one per SITL instance, sharing the base location
+#    launch_swarm_sitl.sh printed):
+NUM_AGENTS=3 bash tools/ardupilot_bridge/launch_swarm_shims.sh
+
+# 4. Point Mission Planner (or QGroundControl/MAVProxy) at any instance's
+#    MAVLink UDP port, same as the single-vehicle bridge.
+```
+
+`tools/ardupilot_bridge/test_swarm_protocol.py` exercises the controller's
+per-agent UDP protocol and flocking logic without needing SITL at all, by
+playing all N shims' role itself: goal-seeking when isolated, separation
+when crowded, per-port isolation, and braking on arrival.
+
+This has been verified end to end against 3 real ArduCopter SITL instances:
+all three arm, climb, and fly under the shared flocking controller,
+converging on distinct slots around a common goal and holding position
+there. Two bugs surfaced only once vehicles actually reached the goal
+(never observed in `drone_swarm`'s pure simulation, whose goal was far
+enough away that it was never actually reached in the simulated window):
+
+- **Missing velocity damping.** `velocityCmd = measured_velocity +
+  accel*dt` carries speed forward with nothing to bleed it off as
+  goal-seeking acceleration shrinks near arrival (alignment only levels
+  differences *between* agents' velocities — it doesn't slow the flock
+  down as a whole). Without damping, an agent flew straight through the
+  goal at cruise speed and kept going.
+- **A single shared goal point is unstable once reached.** With every
+  agent seeking the exact same point, separation (pushing agents apart)
+  and goal-seeking (pulling all of them together) fight indefinitely once
+  the flock converges — confirmed live as a persistent, only slowly-decaying
+  orbit around the goal instead of settling. Fixed by giving each agent its
+  own slot on a small ring around the shared goal, the same way a real
+  multi-vehicle rendezvous would need distinct slots (vehicles can't
+  occupy the same point either). The velocity-damping constant also needed
+  to sit above the critical-damping point for the resulting goal-seeking
+  spring (`accel ≈ kGoalGain * (slot - pos)` near arrival gives a natural
+  frequency of `sqrt(kGoalGain)`); underdamped, the flock still settled
+  into a wide, slowly-decaying orbit around its formation ring rather than
+  holding position.
+
+The same safety note as the single-vehicle bridge applies: ArduPilot's
+GUIDED mode keeps flying the last commanded velocity if the setpoint
+stream stops, which is fine for SITL but would need a watchdog before
+pointing this at real hardware.
+
 ## Extending it
 
 - **New membership function**: subclass `MembershipFunction`
