@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -45,10 +46,8 @@ public:
     }
 
     bool hasTerm(const std::string& termName) const {
-        for (const auto& t : terms_) {
-            if (t.name == termName) return true;
-        }
-        return false;
+        return std::any_of(terms_.begin(), terms_.end(),
+                            [&termName](const Term& t) { return t.name == termName; });
     }
 
     // Degree of membership of crisp value x in every term of this variable.

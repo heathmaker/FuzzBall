@@ -98,7 +98,8 @@ int main() {
     const SugenoEngine acc = buildACCController();
 
     const int numVehicles = kNumFollowers + 1;  // index 0 = leader
-    std::vector<double> pos(numVehicles), vel(numVehicles, 15.0);
+    std::vector<double> pos(numVehicles);
+    std::vector<double> vel(numVehicles, 15.0);
     for (int i = 0; i < numVehicles; ++i) {
         pos[i] = static_cast<double>(kNumFollowers - i) * desiredGap(15.0);
     }
@@ -114,7 +115,8 @@ int main() {
     double worstGapError = 0.0;
     double minGap = 1e9;
 
-    std::vector<double> nextPos(numVehicles), nextVel(numVehicles);
+    std::vector<double> nextPos(numVehicles);
+    std::vector<double> nextVel(numVehicles);
     for (int step = 0; step <= steps; ++step) {
         const double t = step * kDt;
 

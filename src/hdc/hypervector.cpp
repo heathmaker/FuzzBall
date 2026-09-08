@@ -59,7 +59,9 @@ Hypervector HDCSpace::permute(const Hypervector& v, int shift) const {
 
 double HDCSpace::cosineSimilarity(const Hypervector& a, const Hypervector& b) {
     if (a.size() != b.size()) throw std::invalid_argument("cosineSimilarity: dimension mismatch");
-    double dot = 0.0, na = 0.0, nb = 0.0;
+    double dot = 0.0;
+    double na = 0.0;
+    double nb = 0.0;
     for (std::size_t i = 0; i < a.size(); ++i) {
         dot += static_cast<double>(a[i]) * b[i];
         na += static_cast<double>(a[i]) * a[i];
@@ -119,7 +121,7 @@ ScalarEncoder::ScalarEncoder(HDCSpace& space, double min, double max, std::size_
 Hypervector ScalarEncoder::encode(double value) const {
     double clamped = std::min(max_, std::max(min_, value));
     const double t = (clamped - min_) / (max_ - min_);
-    std::size_t idx = static_cast<std::size_t>(std::lround(t * static_cast<double>(levels_ - 1)));
+    auto idx = static_cast<std::size_t>(std::lround(t * static_cast<double>(levels_ - 1)));
     idx = std::min(idx, levels_ - 1);
     return levelVectors_[idx];
 }

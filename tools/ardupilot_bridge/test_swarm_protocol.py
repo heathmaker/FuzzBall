@@ -113,7 +113,7 @@ def main():
     args = parser.parse_args()
 
     proc = subprocess.Popen([args.bridge_path, str(args.base_port)], stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+                            stderr=subprocess.DEVNULL)
     time.sleep(0.5)
     try:
         run_checks(args.base_port)

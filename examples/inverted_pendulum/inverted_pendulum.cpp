@@ -89,7 +89,7 @@ SugenoEngine buildPendulumFIS() {
 
     for (const auto& angleTerm : terms) {
         for (const auto& rateTerm : terms) {
-            const double indexSum = static_cast<double>(angleTerm.index + rateTerm.index);
+            const auto indexSum = static_cast<double>(angleTerm.index + rateTerm.index);
             SugenoConsequent force;
             force.variable = "force";
             // Positive theta means the pole is tipping in the positive

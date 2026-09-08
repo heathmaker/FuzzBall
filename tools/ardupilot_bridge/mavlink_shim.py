@@ -168,10 +168,13 @@ def connect_and_prepare(connect_str, takeoff_alt_m, common_origin=None):
     # Stream LOCAL_POSITION_NED and ATTITUDE at 10 Hz explicitly, rather
     # than assuming whatever default rate the vehicle happens to be
     # configured with.
-    for msg_id, hz in ((mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, 10),
-                        (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, 10),
-                        (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 5),
-                        (mavutil.mavlink.MAVLINK_MSG_ID_HEARTBEAT, 2)):
+    stream_rates_hz = (
+        (mavutil.mavlink.MAVLINK_MSG_ID_LOCAL_POSITION_NED, 10),
+        (mavutil.mavlink.MAVLINK_MSG_ID_ATTITUDE, 10),
+        (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 5),
+        (mavutil.mavlink.MAVLINK_MSG_ID_HEARTBEAT, 2),
+    )
+    for msg_id, hz in stream_rates_hz:
         master.mav.command_long_send(
             master.target_system, master.target_component,
             mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
@@ -275,20 +278,20 @@ def bridge_loop(master, state, controller_addr, loop_hz):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--connect", default="udp:127.0.0.1:14550",
-                         help="MAVLink connection string to ArduPilot (default: %(default)s)")
+                        help="MAVLink connection string to ArduPilot (default: %(default)s)")
     parser.add_argument("--controller-host", default="127.0.0.1")
     parser.add_argument("--controller-port", type=int, default=6001)
     parser.add_argument("--takeoff-alt", type=float, default=3.0,
-                         help="Initial takeoff altitude in meters before handing off to the guidance FIS")
+                        help="Initial takeoff altitude in meters before handing off to the guidance FIS")
     parser.add_argument("--loop-hz", type=float, default=10.0)
     parser.add_argument("--common-origin", default=None,
-                         help="lat,lon,alt_m shared reference point. Required for multi-vehicle use "
-                              "(e.g. the swarm bridge): converts THIS vehicle's own GPS fix into the "
-                              "same local frame every other swarm member also converts into, since "
-                              "each vehicle's LOCAL_POSITION_NED is relative to its own independent "
-                              "EKF origin and so is not otherwise comparable across vehicles. Pass "
-                              "the exact same value to every shim in a swarm. Omit for single-vehicle "
-                              "use (position then comes straight from LOCAL_POSITION_NED).")
+                        help="lat,lon,alt_m shared reference point. Required for multi-vehicle use "
+                             "(e.g. the swarm bridge): converts THIS vehicle's own GPS fix into the "
+                             "same local frame every other swarm member also converts into, since "
+                             "each vehicle's LOCAL_POSITION_NED is relative to its own independent "
+                             "EKF origin and so is not otherwise comparable across vehicles. Pass "
+                             "the exact same value to every shim in a swarm. Omit for single-vehicle "
+                             "use (position then comes straight from LOCAL_POSITION_NED).")
     args = parser.parse_args()
 
     common_origin = None

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFUZZYLIB_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure
+
+  cpp-lint:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (generates compile_commands.json)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Run clang-tidy
+        run: |
+          set -euo pipefail
+          status=0
+          while IFS= read -r -d '' file; do
+            echo "::group::clang-tidy $file"
+            clang-tidy -p build --warnings-as-errors='*' "$file" || status=1
+            echo "::endgroup::"
+          done < <(find src examples tests -name '*.cpp' -print0)
+          exit "$status"
+
+  python-lint:
+    name: Python lint (tools/ardupilot_bridge)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Syntax-check (no ArduPilot/pymavlink needed for this)
+        run: python3 -m py_compile tools/ardupilot_bridge/*.py
+
+      - name: flake8
+        run: flake8 tools/ardupilot_bridge/*.py

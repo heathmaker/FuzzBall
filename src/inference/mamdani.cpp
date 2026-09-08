@@ -58,7 +58,8 @@ std::unordered_map<std::string, double> MamdaniEngine::evaluate(
     std::unordered_map<std::string, double> results;
     for (const auto& [name, outVar] : outputs_) {
         const auto curve = aggregatedCurve(name, crispInputs);
-        std::vector<double> xs, ys;
+        std::vector<double> xs;
+        std::vector<double> ys;
         xs.reserve(curve.size());
         ys.reserve(curve.size());
         for (const auto& [x, y] : curve) {

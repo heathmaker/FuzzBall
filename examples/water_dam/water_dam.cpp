@@ -77,6 +77,7 @@ int main() {
 
     // A scripted inflow profile: calm, then a storm surge, then a lull.
     std::vector<double> inflowProfile;
+    inflowProfile.reserve(50);
     for (int t = 0; t < 15; ++t) inflowProfile.push_back(20.0);
     for (int t = 0; t < 20; ++t) inflowProfile.push_back(85.0);
     for (int t = 0; t < 15; ++t) inflowProfile.push_back(10.0);
@@ -84,7 +85,8 @@ int main() {
     std::cout << "Water dam gate control (Mamdani FIS)\n"
                   "  step  inflow  level   gate_opening\n";
 
-    double minLevel = tank.level, maxLevel = tank.level;
+    double minLevel = tank.level;
+    double maxLevel = tank.level;
     for (std::size_t t = 0; t < inflowProfile.size(); ++t) {
         const double inflow = inflowProfile[t];
         const auto result = controller.evaluate({{"level", tank.level}, {"inflow", inflow}});

@@ -169,6 +169,7 @@ int main(int argc, char** argv) {
     }
 
     std::vector<std::unique_ptr<UdpEndpoint>> endpoints;
+    endpoints.reserve(kNumAgents);
     for (int i = 0; i < kNumAgents; ++i) endpoints.push_back(std::make_unique<UdpEndpoint>(basePort + i));
 
     auto crowdingClassifier = buildCrowdingClassifier();
@@ -216,7 +217,9 @@ int main(int argc, char** argv) {
             // agents' state updates arrive asynchronously on their own
             // sockets, so this is necessarily a little stale, same as real
             // distributed swarms operating over unreliable comms.
-            Vec3 separation{}, cohesionCenter{}, avgVelocity{};
+            Vec3 separation{};
+            Vec3 cohesionCenter{};
+            Vec3 avgVelocity{};
             int neighborCount = 0;
             for (int j = 0; j < kNumAgents; ++j) {
                 if (j == i || !agents[j].haveState) continue;
@@ -262,7 +265,8 @@ int main(int argc, char** argv) {
             // their own slot.
             constexpr double kVelocityDamping = 2.0;  // 1/s
 
-            Vec3 cohesion{}, alignment{};
+            Vec3 cohesion{};
+            Vec3 alignment{};
             if (neighborCount > 0) {
                 cohesionCenter = cohesionCenter * (1.0 / neighborCount);
                 cohesion = (cohesionCenter - agents[i].pos) * cohesionGain;

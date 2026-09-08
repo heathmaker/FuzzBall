@@ -195,7 +195,7 @@ private:
     std::string sourceKey_, complementKey_;
 };
 
-std::shared_ptr<Pipeline> buildAxisController(std::shared_ptr<MamdaniEngine> scheduler,
+std::shared_ptr<Pipeline> buildAxisController(const std::shared_ptr<MamdaniEngine>& scheduler,
                                                  control::PIDController::Config gentleCfg,
                                                  control::PIDController::Config aggressiveCfg) {
     auto gentlePID = std::make_shared<PIDBlock>(gentleCfg, /*dt placeholder, overridden per-call via "dt"*/ 0.005);
@@ -231,7 +231,8 @@ int main() {
     xyCfg.outputMax = 4.0;
     xyCfg.integralMin = -3.0;
     xyCfg.integralMax = 3.0;
-    control::PIDController xPID(xyCfg), yPID(xyCfg);
+    control::PIDController xPID(xyCfg);
+    control::PIDController yPID(xyCfg);
 
     control::PIDController::Config zCfg;
     zCfg.kp = 3.0;

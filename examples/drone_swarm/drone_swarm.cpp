@@ -115,8 +115,8 @@ int main() {
     constexpr double kGridSpacing = 6.0;
     std::vector<Drone> drones(kNumDrones);
     for (int i = 0; i < kNumDrones; ++i) {
-        const double col = static_cast<double>(i % kGridCols);
-        const double row = static_cast<double>(i / kGridCols);
+        const auto col = static_cast<double>(i % kGridCols);
+        const auto row = static_cast<double>(i / kGridCols);  // NOLINT(bugprone-integer-division) -- intentional grid-row index
         drones[i].pos = {col * kGridSpacing + jitter(rng), row * kGridSpacing + jitter(rng), jitter(rng)};
         drones[i].vel = {0.0, 0.0, 0.0};
     }
