@@ -40,7 +40,8 @@ TEST_CASE(sshape_and_zshape_are_complementary_at_endpoints) {
     CHECK_NEAR(s(10.0), 1.0, 1e-9);
     CHECK_NEAR(z(0.0), 1.0, 1e-9);
     CHECK_NEAR(z(10.0), 0.0, 1e-9);
-    for (double x = 0.0; x <= 10.0; x += 1.0) {
+    for (int step = 0; step <= 10; ++step) {
+        const auto x = static_cast<double>(step);
         CHECK_NEAR(s(x) + z(x), 1.0, 1e-9);
     }
 }

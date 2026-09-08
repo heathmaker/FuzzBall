@@ -1,0 +1,38 @@
+---
+# Static-analysis linter for fuzzylib: focused on real correctness/
+# performance issues rather than stylistic bikeshedding, since the
+# formatting side is already handled by .clang-format / a separate CI job.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  performance-*,
+  -performance-enum-size,
+  portability-*,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-uppercase-literal-suffix,
+  -readability-else-after-return,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-named-parameter,
+  -readability-convert-member-functions-to-static,
+  -readability-simplify-boolean-expr,
+  -bugprone-exception-escape,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '(include|src)/fuzzylib/.*'
+FormatStyle: none
+CheckOptions:
+  # defuzzify()'s switch legitimately branches over every DefuzzMethod case,
+  # and the swarm/quadcopter examples' main() is a single real-time control
+  # loop (select() + per-agent flocking, or a 6DoF physics step) that reads
+  # more clearly kept inline than split across helper functions that would
+  # each need most of the same local state passed in.
+  readability-function-cognitive-complexity.Threshold: '50'

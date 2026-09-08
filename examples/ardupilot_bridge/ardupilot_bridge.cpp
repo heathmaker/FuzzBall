@@ -63,7 +63,9 @@ SugenoEngine buildGuidanceFIS() {
     SugenoEngine engine;
     engine.addInput(distance);
 
-    SugenoConsequent creep, cruise, fast;
+    SugenoConsequent creep;
+    SugenoConsequent cruise;
+    SugenoConsequent fast;
     creep.variable = cruise.variable = fast.variable = "speed";
     creep.constant = 0.4;
     cruise.constant = 2.5;
