@@ -1,0 +1,12 @@
+<!--
+    A dead-straight 10-mile (16093.44 m) corridor, split into 3 edges only
+    so the middle third can carry a lower speed limit (see network.edg.xml)
+    ; there are no real intersections, n1/n2 just join one edge to the
+    next.
+-->
+<nodes>
+    <node id="n0" x="0.0" y="0.0" type="dead_end"/>
+    <node id="n1" x="6437.376" y="0.0" type="priority"/>
+    <node id="n2" x="9656.064" y="0.0" type="priority"/>
+    <node id="n3" x="16093.44" y="0.0" type="dead_end"/>
+</nodes>
