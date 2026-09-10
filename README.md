@@ -309,6 +309,13 @@ bridges, this program owns no physics itself: it only supplies the following
 vehicle's per-step speed command, the same guidance-layer role
 `ardupilot_bridge` plays for a real ArduPilot vehicle.
 
+The ACC's desired following distance is a dynamic, speed-based time gap
+rather than a fixed number of meters: a 1-second gap at and above a 25 mph
+floor speed (e.g. ~27.5 m at the 65 mph cruise speed, ~19 m in the 45 mph
+zone), held at its 25-mph value below that floor rather than letting it
+keep shrinking toward 0 while crawling or stopped — the shape a real ACC's
+distance setting has, and `gapError` is exactly actual-gap-minus-this.
+
 **Setup (one-time):**
 
 ```sh
@@ -335,7 +342,26 @@ bash tools/sumo_acc/build_network.sh
 
 # 3. Run it (headless; pass --gui for sumo-gui instead):
 ./build/examples/sumo_acc tools/sumo_acc/sumo.sumocfg
+
+# 4. Optional: record a chase-cam video via sumo-gui's screenshot API
+#    (implies --gui; needs an actual X display, e.g. a real desktop or
+#    Xvfb). Off by default -- a full run captures on the order of 800
+#    PNGs, so only pass this when you actually want a recording:
+./build/examples/sumo_acc tools/sumo_acc/sumo.sumocfg --record /tmp/sumo_acc_frames
+# then, once it finishes, encode the frames (the run prints this exact command):
+ffmpeg -framerate 10 -i /tmp/sumo_acc_frames/frame_%06d.png \
+       -c:v libx264 -pix_fmt yuv420p /tmp/sumo_acc_frames/sumo_acc_demo.mp4
 ```
+
+**Known caveat:** `--gui`/`--record` drive `sumo-gui` over a real X display.
+In at least one headless/Xvfb sandbox, a full run occasionally hung
+indefinitely partway through — reproducibly, and identically with plain
+`--gui` and no recording involved at all, so it's an interaction between
+`sumo-gui` and `libtraci` under that specific setup rather than a bug in
+this file. The default headless mode (no `--gui`, no `--record`) uses a
+completely different SUMO code path and has never shown this. A real
+desktop X session may not hit it at all; if a recording run does seem
+stuck, that's the known issue, not a hang worth debugging in your own code.
 
 The ego vehicle departs from a standstill 50 m behind the leader (which
 starts already at speed), so the largest gap error in the printed log is
