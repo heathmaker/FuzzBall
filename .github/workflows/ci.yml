@@ -35,11 +35,18 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          while IFS= read -r -d '' file; do
+          # Lint exactly the files CMake actually compiled (read from
+          # compile_commands.json), not every *.cpp on disk: a
+          # conditionally-built example (e.g. sumo_acc, skipped here since
+          # this runner has no SUMO) has no compile-command entry and no
+          # include paths for its own dependencies, so linting it directly
+          # off the filesystem fails on missing headers rather than
+          # reporting anything about the code itself.
+          while IFS= read -r file; do
             echo "::group::clang-tidy $file"
             clang-tidy -p build --warnings-as-errors='*' "$file" || status=1
             echo "::endgroup::"
-          done < <(find src examples tests -name '*.cpp' -print0)
+          done < <(python3 -c "import json; print('\n'.join(e['file'] for e in json.load(open('build/compile_commands.json'))))")
           exit "$status"
 
   python-lint:
