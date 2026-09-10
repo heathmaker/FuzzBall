@@ -1,0 +1,13 @@
+<!--
+    One lane throughout. 65 mph (29.0576 m/s) for the first and last 4
+    miles, dropping to 45 mph (20.1168 m/s) for a 2-mile stretch in the
+    middle; the "human" leader's own SUMO car-following model slows for
+    and re-accelerates out of that zone on its own, giving the ACC
+    controller a real disturbance to track without any scripted velocity
+    profile on our side.
+-->
+<edges>
+    <edge id="e0" from="n0" to="n1" numLanes="1" speed="29.0576" priority="1"/>
+    <edge id="e1" from="n1" to="n2" numLanes="1" speed="20.1168" priority="1"/>
+    <edge id="e2" from="n2" to="n3" numLanes="1" speed="29.0576" priority="1"/>
+</edges>

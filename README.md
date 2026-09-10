@@ -112,6 +112,7 @@ differ only in how a rule's contribution becomes a crisp number:
 | `car_platooning` | A 9-rule gain-scheduled TSK adaptive-cruise-control law, reused unmodified across a 5-vehicle chain, absorbing a hard-brake disturbance. |
 | `quadcopter` | A full **6DoF** rigid-body flight sim (quaternion attitude, 4-motor thrust mixing) flown by a cascaded position-PID -> fuzzy-scheduled-PID-attitude -> motor-mixer controller — the canonical fuzzy-PID hybrid, now driving a real 3D vehicle instead of one decoupled axis. |
 | `drone_swarm` | 3D boids-style flocking past static obstacles: each drone classifies local crowding via an **HDC prototype block** to gain-schedule separation/cohesion, and separately runs a **Mamdani FIS** on obstacle clearance to gain-schedule avoidance — fuzzy logic and HDC doing the same kind of local-context scheduling side by side. |
+| `sumo_acc` | The same `car_platooning` ACC law, this time tracking a real **SUMO**-simulated human driver over 10 miles of highway (see below) instead of a scripted leader profile. |
 
 Each example is a single, runnable, verbose-output `.cpp` file meant to be
 read top to bottom as documentation of one usage pattern.
@@ -288,6 +289,89 @@ The same safety note as the single-vehicle bridge applies: ArduPilot's
 GUIDED mode keeps flying the last commanded velocity if the setpoint
 stream stops, which is fine for SITL but would need a watchdog before
 pointing this at real hardware.
+
+## SUMO adaptive cruise control
+
+`examples/sumo_acc/sumo_acc.cpp` hooks the exact same 9-rule gain-scheduled
+TSK ACC law as `car_platooning` up to a real [SUMO](https://eclipse.dev/sumo/)
+traffic simulation, over [libtraci](https://sumo.dlr.de/docs/libtraci.html)
+(SUMO's own native C++ TraCI client library) instead of `car_platooning`'s
+internal point-mass physics. The scenario is a straight, one-lane, 10-mile
+highway (`tools/sumo_acc/network.edg.xml`) with a 65 mph limit that drops to
+45 mph for a 2-mile stretch in the middle. The lead vehicle is SUMO's own
+default **Krauss car-following model** — the standard human-driver model,
+complete with its usual driver imperfection (`sigma`) and reaction time
+(`tau`) — left otherwise unmodified; it slows for and re-accelerates out of
+the 45 mph zone entirely under SUMO's own logic, so the ACC gets a real
+disturbance to track without any scripted velocity profile on our side (the
+role `car_platooning`'s hard-brake profile plays there). Like the ArduPilot
+bridges, this program owns no physics itself: it only supplies the following
+vehicle's per-step speed command, the same guidance-layer role
+`ardupilot_bridge` plays for a real ArduPilot vehicle.
+
+The ACC's desired following distance is a dynamic, speed-based time gap
+rather than a fixed number of meters: a 1-second gap at and above a 25 mph
+floor speed (e.g. ~27.5 m at the 65 mph cruise speed, ~19 m in the 45 mph
+zone), held at its 25-mph value below that floor rather than letting it
+keep shrinking toward 0 while crawling or stopped — the shape a real ACC's
+distance setting has, and `gapError` is exactly actual-gap-minus-this.
+
+**Setup (one-time):**
+
+```sh
+pip install eclipse-sumo traci sumolib
+export SUMO_HOME="$(python3 -c 'import sumo, os; print(os.path.dirname(sumo.__file__))')"
+```
+
+`SUMO_HOME` is the same environment variable all of SUMO's own tooling uses;
+CMake looks for `$SUMO_HOME/include/libsumo` and `$SUMO_HOME/lib64/libtracicpp.*`
+to build `sumo_acc` — if it isn't set (or SUMO isn't installed), CMake prints
+`SUMO libtraci not found -- skipping sumo_acc example` and every other target
+still builds normally.
+
+**Running it:**
+
+```sh
+# 1. Configure with SUMO_HOME set (from a fresh build/ if you configured
+#    before installing SUMO), then build as usual.
+cmake -S . -B build && cmake --build build
+
+# 2. Compile the network (only needed once, or after editing the .nod.xml/
+#    .edg.xml source files):
+bash tools/sumo_acc/build_network.sh
+
+# 3. Run it (headless; pass --gui for sumo-gui instead):
+./build/examples/sumo_acc tools/sumo_acc/sumo.sumocfg
+
+# 4. Optional: record a chase-cam video via sumo-gui's screenshot API
+#    (implies --gui; needs an actual X display, e.g. a real desktop or
+#    Xvfb). Off by default -- a full run captures on the order of 800
+#    PNGs, so only pass this when you actually want a recording:
+./build/examples/sumo_acc tools/sumo_acc/sumo.sumocfg --record /tmp/sumo_acc_frames
+# then, once it finishes, encode the frames (the run prints this exact command):
+ffmpeg -framerate 10 -i /tmp/sumo_acc_frames/frame_%06d.png \
+       -c:v libx264 -pix_fmt yuv420p /tmp/sumo_acc_frames/sumo_acc_demo.mp4
+```
+
+**Known caveat:** `--gui`/`--record` drive `sumo-gui` over a real X display.
+In at least one headless/Xvfb sandbox, a full run occasionally hung
+indefinitely partway through — reproducibly, and identically with plain
+`--gui` and no recording involved at all, so it's an interaction between
+`sumo-gui` and `libtraci` under that specific setup rather than a bug in
+this file. The default headless mode (no `--gui`, no `--record`) uses a
+completely different SUMO code path and has never shown this. A real
+desktop X session may not hit it at all; if a recording run does seem
+stuck, that's the known issue, not a hang worth debugging in your own code.
+
+The ego vehicle departs from a standstill 50 m behind the leader (which
+starts already at speed), so the largest gap error in the printed log is
+this initial catch-up transient, not a tracking failure — watch the numbers
+converge to a near-zero, steady gap error both before and after the 45 mph
+zone. The leader's realized speed settles a little under the posted limits
+(SUMO samples each simulated driver its own fixed `speedFactor`, e.g. ~61.5
+mph against a 65 mph limit for a given run/seed) — the ACC correctly tracks
+whatever the human actually does, not the road's nominal speed limit, which
+is exactly what a real ACC targets.
 
 ## Extending it
 

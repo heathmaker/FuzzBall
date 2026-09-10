@@ -1,0 +1,28 @@
+<!--
+    Two vehicles on one route down the full 10-mile corridor:
+      - "leader" (vType human): SUMO's default Krauss car-following model
+        with its usual driver imperfection (sigma) and reaction time
+        (tau); this is SUMO's standard human-driver model, left
+        otherwise unmodified. Its maxSpeed (40 m/s) is well above either
+        edge speed limit, so its actual cruising speed is governed by the
+        road (65 mph, dropping to 45 mph through the middle zone), not by
+        the vType.
+      - "ego" (vType acc_follower): departs from a standstill 50 m behind
+        the leader. Its speed is driven entirely by
+        examples/sumo_acc/sumo_acc.cpp over TraCI every simulation step;
+        the vType here only sets the physical accel/decel limits SUMO
+        still enforces underneath that (see the sumo_acc.cpp setSpeedMode
+        comment) and a fallback car-following model in case the
+        controlling process isn't attached.
+-->
+<routes>
+    <vType id="human" vClass="passenger" carFollowModel="Krauss" length="5" minGap="2.5"
+           accel="2.6" decel="4.5" emergencyDecel="9" sigma="0.5" tau="1.0" maxSpeed="40" color="0.2,0.4,1"/>
+    <vType id="acc_follower" vClass="passenger" carFollowModel="Krauss" length="5" minGap="2.5"
+           accel="3.0" decel="4.0" emergencyDecel="9" maxSpeed="40" color="1,0.5,0"/>
+
+    <route id="highway" edges="e0 e1 e2"/>
+
+    <vehicle id="leader" type="human" route="highway" depart="0" departPos="50" departSpeed="max"/>
+    <vehicle id="ego" type="acc_follower" route="highway" depart="0" departPos="0" departSpeed="0"/>
+</routes>
