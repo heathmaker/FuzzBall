@@ -1,0 +1,22 @@
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation = "http://sumo.dlr.de/xsd/routes_file.xsd">
+	<vType vClass = "passenger" id="Car01" length="5.0"
+              maxSpeed="31.292" tau = "1" lcAssertive="3"/>
+		<route id="route01" edges="gneE0 gneE1 gneE3"/>
+		<vehicle id="0" type="Car01" route="route01" depart="0" departLane="0" color="1,0,1" />
+	<vType vClass = "passenger" id="Car03" length="5.0"
+              maxSpeed="31.292" tau = "1"/>
+		<route id="route03" edges="gneE0 gneE1 gneE3"/>
+		<vehicle id="1" type="Car03" route="route03" depart="0" departLane="0" color="0,1,1"/>
+		<vehicle id="2" type="Car03" route="route03" depart="0" departLane="0" color="0,1,1"/>
+		<vehicle id="3" type="Car03" route="route03" depart="0" departLane="0" color="0,1,1"/>
+		<vehicle id="4" type="Car03" route="route03" depart="0" departLane="0" color="0,1,1"/>
+
+	<vType vClass = "passenger" id="Car04" length="5.0"
+              maxSpeed="31.292" tau = "1" carFollowModel = "CACC"/>
+	<!-- <vType vClass = "passenger" id="Car02" length="5.0"
+              maxSpeed="31.292" tau = "1" />
+		<route id="route02" edges="gneE0 gneE1 gneE3"/>
+		<vehicle id="5" type="Car02" route="route02" depart="120" departLane="1" arrivalLane="1" color="0.5,0.5,0.5"/> -->
+		<!-- <vehicle id="6" type="Car01" route="route01" depart="0" departLane="1" color="1,1,1"/>
+		<vehicle id="7" type="Car01" route="route01" depart="0" departLane="1" color="1,1,1"/> -->
+</routes>

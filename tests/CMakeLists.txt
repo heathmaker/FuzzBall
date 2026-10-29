@@ -14,3 +14,11 @@ fuzzylib_add_test(test_ga         test_ga.cpp)
 fuzzylib_add_test(test_nn         test_nn.cpp)
 fuzzylib_add_test(test_hdc        test_hdc.cpp)
 fuzzylib_add_test(test_blocks     test_blocks.cpp)
+
+# The thesis replication's fuzzy systems and genetic algorithm (examples/thesis_platoon).
+if(TARGET thesis_fis)
+    add_executable(test_thesis_fis test_thesis_fis.cpp)
+    target_link_libraries(test_thesis_fis PRIVATE thesis_fis)
+    target_include_directories(test_thesis_fis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME test_thesis_fis COMMAND test_thesis_fis)
+endif()

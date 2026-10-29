@@ -10,6 +10,10 @@ fuzzylib_add_example(car_platooning       car_platooning/car_platooning.cpp)
 fuzzylib_add_example(quadcopter           quadcopter/quadcopter.cpp)
 fuzzylib_add_example(drone_swarm          drone_swarm/drone_swarm.cpp)
 
+# The thesis replication's fuzzy controllers (no SUMO needed); its SUMO-driven
+# executables are added in the SUMO block below.
+add_subdirectory(thesis_platoon)
+
 fuzzylib_add_example(ardupilot_bridge     ardupilot_bridge/ardupilot_bridge.cpp)
 target_include_directories(ardupilot_bridge PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 
@@ -35,6 +39,18 @@ if(FUZZYLIB_SUMO_INCLUDE_DIR AND FUZZYLIB_SUMO_TRACI_LIBRARY)
     target_compile_definitions(sumo_acc PRIVATE LIBTRACI=1)
     get_filename_component(FUZZYLIB_SUMO_LIB_DIR ${FUZZYLIB_SUMO_TRACI_LIBRARY} DIRECTORY)
     set_target_properties(sumo_acc PROPERTIES BUILD_RPATH "${FUZZYLIB_SUMO_LIB_DIR}")
+
+    # Master's thesis replication (examples/thesis_platoon): the scenario runner
+    # and GA trainers drive SUMO the same way sumo_acc does.
+    add_library(thesis_scenario STATIC thesis_platoon/scenario.cpp thesis_platoon/report.cpp)
+    target_link_libraries(thesis_scenario PUBLIC thesis_fis ${FUZZYLIB_SUMO_TRACI_LIBRARY})
+    target_include_directories(thesis_scenario PUBLIC ${FUZZYLIB_SUMO_INCLUDE_DIR})
+    target_compile_definitions(thesis_scenario PUBLIC LIBTRACI=1)
+    foreach(thesis_target thesis_run thesis_train)
+        add_executable(${thesis_target} thesis_platoon/${thesis_target}.cpp)
+        target_link_libraries(${thesis_target} PRIVATE thesis_scenario)
+        set_target_properties(${thesis_target} PROPERTIES BUILD_RPATH "${FUZZYLIB_SUMO_LIB_DIR}")
+    endforeach()
 else()
     message(STATUS "SUMO libtraci not found -- skipping sumo_acc example (set SUMO_HOME to enable)")
 endif()

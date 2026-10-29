@@ -50,7 +50,7 @@ include/fuzzylib/
   hdc/          hyperdimensional computing primitives
 src/            .cpp implementations for the above
 examples/       tipper, water_dam, inverted_pendulum, car_platooning,
-                quadcopter, drone_swarm
+                quadcopter, drone_swarm, thesis_platoon (+ the bridges)
 tests/          a small dependency-free test harness + unit tests
 ```
 
@@ -113,6 +113,7 @@ differ only in how a rule's contribution becomes a crisp number:
 | `quadcopter` | A full **6DoF** rigid-body flight sim (quaternion attitude, 4-motor thrust mixing) flown by a cascaded position-PID -> fuzzy-scheduled-PID-attitude -> motor-mixer controller — the canonical fuzzy-PID hybrid, now driving a real 3D vehicle instead of one decoupled axis. |
 | `drone_swarm` | 3D boids-style flocking past static obstacles: each drone classifies local crowding via an **HDC prototype block** to gain-schedule separation/cohesion, and separately runs a **Mamdani FIS** on obstacle clearance to gain-schedule avoidance — fuzzy logic and HDC doing the same kind of local-context scheduling side by side. |
 | `sumo_acc` | The same `car_platooning` ACC law, this time tracking a real **SUMO**-simulated human driver over 10 miles of highway (see below) instead of a scripted leader profile. |
+| `thesis_platoon` | A C++ replication of the **Master's thesis** *Optimizing Platoon Time Gap Following on the Highway using Genetic Fuzzy Systems*: a four-car platoon holding a 1 s time gap behind a human driver in SUMO, with hand-picked (FIS) and **GA-tuned (GFS)** Mamdani controllers for car-following, lane changing and post-lane-change leading (see below). |
 
 Each example is a single, runnable, verbose-output `.cpp` file meant to be
 read top to bottom as documentation of one usage pattern.
@@ -372,6 +373,135 @@ zone. The leader's realized speed settles a little under the posted limits
 mph against a 65 mph limit for a given run/seed) — the ACC correctly tracks
 whatever the human actually does, not the road's nominal speed limit, which
 is exactly what a real ACC targets.
+
+## Master's thesis replication: genetic fuzzy platooning
+
+`examples/thesis_platoon/` is a port of the Python code in
+[`HeathPalmer/master_thesis`](https://github.com/HeathPalmer/master_thesis)
+(`lane_change_controller` branch, `test/FIS`) to C++: the thesis *Optimizing
+Platoon Time Gap Following on the Highway using Genetic Fuzzy Systems*
+(Palmer, Sathyan, Cohen; NAFIPS 2024). Four connected vehicles follow a
+human-driven (Krauss) lead on a 40-mile SUMO highway. After a 300 s Krauss
+warm-up the followers switch to the model under test and try to hold a 1 s
+time gap to the vehicle ahead:
+
+| Model | What drives the four followers |
+|---|---|
+| `Krauss` | SUMO's human-driver model (baseline) |
+| `CACC` | SUMO's Cooperative Adaptive Cruise Control model (baseline) |
+| `FIS` | three hand-picked Mamdani systems: gap error + its rate → acceleration (7 rules); average time loss + its rate → change lanes (2 rules); and, once the platoon has changed lanes and no longer follows the human, platoon gap error + velocity error → the leader's acceleration (3 rules) |
+| `GFS` | the same rule bases with membership functions tuned by a genetic algorithm — one GA per controller, 66 / 24 / 27 genes |
+
+The four scenarios are the thesis' own: **1** single lane, cruising at 70 mph;
+**2** single lane, the lead slows to ~55 mph at about 9 minutes; **3** two
+lanes, cruising (the platoon may overtake the slow lead); **4** two lanes with
+the slowdown. The scenario files are copied verbatim from the thesis
+(`tools/thesis_platoon/highway_2*`; `highway_2_mod` is the single-lane road).
+
+**What was converted from Python**
+
+| Thesis (Python) | Here (C++) |
+|---|---|
+| scikit-fuzzy `ControlSystem` / `trimf` | `fuzzylib::MamdaniEngine` (`thesis_fis.cpp`) |
+| EasyGA `GA` + the three `test_easy_ga_*.py` trainers | `easy_ga.cpp` + `thesis_train.cpp` |
+| `traci` | `libtraci` (`scenario.cpp`) |
+| `test_sumo_script.py` `run()` | `scenario.cpp` — all four models, all four scenarios |
+| pandas + `xml2csv` + matplotlib | CSV and SVG written by `report.cpp` |
+
+The controllers reproduce scikit-fuzzy to floating-point precision (the unit
+tests pin them against values the original Python produces). To get there
+`MamdaniEngine` gained two general options, both off by default:
+`setRefineAtCuts(true)` (scikit-fuzzy inserts the points where each output
+term crosses its clip level into the output grid, so clipped triangles keep
+their corners on a coarse grid) and `DefuzzMethod::CentroidExact` (the exact
+centroid of the piecewise-linear aggregate), plus `evaluateStrict()` which
+throws when no rule fires instead of defuzzifying to the middle of the
+universe — scikit-fuzzy raises there too, and the thesis' GA scored such
+candidates 100000.
+
+**Running it**
+
+```sh
+# The thesis used SUMO 1.16.0; that version reproduces its numbers exactly.
+pip install eclipse-sumo==1.16.0
+export SUMO_HOME="$(python3 -c 'import sumo, os; print(os.path.dirname(sumo.__file__))')"
+export PATH="$SUMO_HOME/bin:$PATH"
+
+# That wheel is built with libstdc++'s old string ABI (SUMO 1.27's is not);
+# if linking fails with undefined libtraci:: symbols, add this flag:
+cmake -S . -B build -DCMAKE_CXX_FLAGS=-D_GLIBCXX_USE_CXX11_ABI=0
+cmake --build build
+
+# One scenario, all four models (about 40 s); writes CSV + SVG plots and summary.csv
+./build/examples/thesis_run --scenario 3 --out results/scenario3
+./build/examples/thesis_run --scenario 4 --model gfs --gui     # watch one in sumo-gui
+
+# Compare against the paper's published numbers (after running scenarios 1-4)
+python3 tools/thesis_platoon/compare_to_paper.py results
+```
+
+Each run writes, per model: `<Model>_Gap_error.csv` / `_Gap_error_rate.csv`
+(the thesis' spreadsheets), `<Model>_trace.csv` (position, speed and
+acceleration of every vehicle each second) and SVG plots of gap error, time
+gap, position, velocity, acceleration, jerk, time-to-collision (with the 3 s
+safety threshold) and the lane-change decision.
+
+**Does it reproduce the thesis?** Yes — 46 of the 48 published numbers (total
+gap error, total time lost and minimum TTC for four models in four
+scenarios) match, to the paper's own rounding. Table 1 of the paper
+(scenario 3):
+
+| Model | Total gap error (s) | Total time lost (s) | Min TTC (s) |
+|---|---|---|---|
+| Krauss | 13088.77 | 249798.79 | 51.84 |
+| CACC | 4969.88 | 170297.73 | 9.38 |
+| FIS | 2215.60 | 149507.65 (paper: 143580.34) | 26.01 |
+| GFS | 1943.87 | 118627.06 | 26.00 |
+
+The two that differ are both hand-picked-FIS runs: the FIS time lost above,
+and the scenario 1 FIS minimum TTC (26.68 s here, 26.82 s in the slides). In
+both, the other published metric for the same run matches exactly, and in the
+slides the scenario 1 and 2 FIS TTC differ even though the two runs are
+identical until the lead slows down at ~9 minutes, so those two figures most
+likely came from a slightly different parameter set than the final
+`test_sumo_script.py` the port follows.
+
+**Training the GFS again**
+
+```sh
+./build/examples/thesis_train --stage lon1 --generations 5 --out results/train_lon1
+```
+
+`--stage` is `lon1` (66 genes), `lat` (24) or `lon2` (27); the controllers
+not being trained stay hand-picked, as in the thesis, and a candidate's
+fitness is the platoon's summed absolute time-gap error over a two-lane
+cruising run. The thesis' settings (10 chromosomes, 500 generations) are the
+defaults, and since each fitness evaluation is a full SUMO run that takes
+hours; the GFS chromosomes the thesis arrived at are already in
+`thesis_params.cpp`, so retraining is optional. The best chromosome is
+written to `best_<stage>.txt` both in the thesis' format and as C++ triples.
+
+**Kept as they were in the Python** (so the numbers stay comparable): the
+TTC calculation takes the speed difference against the vehicle *ahead of* each
+car rather than the follower; the fitness window slices the series by list
+index rather than by simulation step; a comparison of lane-id strings with the
+integer 1 is always true, which makes the "platoon not yet in the left lane"
+branch nudge vehicles 2 and 4 down and vehicle 3 up by 0.5 m/s every step; and
+vehicle 1 records no gap error while it leads in the left lane, so the
+per-vehicle series differ in length (the thesis' CSVs are cut to the shortest
+one). In the GA, EasyGA's default gene mutation replaces a gene with a random
+integer 1–10 — the integer genes in the thesis' trained chromosomes — and
+its survivor-selection override has an extra path that keeps a failed
+chromosome after replacing it. These are worth knowing about if you plan to
+build on the work.
+
+**Differences**: lane indices are parsed from the end of the lane id
+(`int(lane_id[6])` in the Python breaks on junction-internal lanes); the
+trainers use the same scenario runner as the evaluation script and stop
+simulating at 2000 s (nothing after that is scored) rather than carrying their
+own copy of `run()`; and the lat trainer scores total gap error like the other
+two, as its code does, although the thesis text says total time lost
+(`--objective time-lost` selects that).
 
 ## Extending it
 

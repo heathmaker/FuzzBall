@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 
 #include "fuzzylib/core/fuzzification.hpp"
 
@@ -21,43 +22,96 @@ MamdaniEngine& MamdaniEngine::addOutput(LinguisticVariable variable) {
     return *this;
 }
 
+namespace {
+// Points where `term`, linearly interpolated between the samples at xs, crosses
+// `level` -- the same construction as scikit-fuzzy's interp_universe: one point
+// per grid interval whose end samples straddle the level.
+void appendCutPoints(const Term& term, double level, const std::vector<double>& xs, std::vector<double>& out) {
+    std::vector<double> mu(xs.size());
+    for (size_t i = 0; i < xs.size(); ++i) mu[i] = term.membership(xs[i]);
+    for (size_t i = 0; i + 1 < xs.size(); ++i) {
+        const bool lowSide = mu[i] >= level;
+        const bool highSide = mu[i + 1] >= level;
+        if (lowSide != highSide) {
+            out.push_back(xs[i] + (level - mu[i]) * (xs[i + 1] - xs[i]) / (mu[i + 1] - mu[i]));
+        }
+    }
+}
+}  // namespace
+
 std::vector<std::pair<double, double>> MamdaniEngine::aggregatedCurve(
     const std::string& outputVariable, const std::unordered_map<std::string, double>& crispInputs) const {
     const LinguisticVariable& outVar = outputs_.at(outputVariable);
     const FuzzificationTable table = fuzzifyAll(inputs_, crispInputs);
 
     std::vector<double> xs(resolution_);
-    std::vector<double> ys(resolution_, 0.0);
     const double span = outVar.max() - outVar.min();
     for (int i = 0; i < resolution_; ++i) {
         xs[i] = outVar.min() + span * static_cast<double>(i) / static_cast<double>(resolution_ - 1);
     }
 
+    // Rules that fired for this output, and the strongest firing of each term.
+    struct Fired {
+        const Term* term;
+        double weightedFiring;
+    };
+    std::vector<Fired> fired;
+    std::unordered_map<const Term*, double> strongest;
     for (const Rule& rule : ruleBase_.rules()) {
         const double firing = rule.firingStrength(table, tnorm_);
         if (firing <= 0.0) continue;
         for (const MamdaniConsequent& consequent : rule.mamdaniConsequents()) {
             if (consequent.variable != outputVariable) continue;
-            const Term& term = outVar.term(consequent.term);
+            const Term* term = &outVar.term(consequent.term);
             const double weightedFiring = firing * consequent.weight;
-            for (int i = 0; i < resolution_; ++i) {
-                const double clipped = tnorm_.implication(weightedFiring, term.membership(xs[i]));
-                ys[i] = aggregator_.combine(ys[i], clipped);
-            }
+            fired.push_back({term, weightedFiring});
+            double& best = strongest[term];
+            best = std::max(best, weightedFiring);
+        }
+    }
+
+    if (refineAtCuts_ && !fired.empty()) {
+        std::vector<double> extra;
+        for (const auto& [term, level] : strongest) appendCutPoints(*term, level, xs, extra);
+        xs.insert(xs.end(), extra.begin(), extra.end());
+        std::sort(xs.begin(), xs.end());
+        xs.erase(std::unique(xs.begin(), xs.end()), xs.end());
+    }
+
+    std::vector<double> ys(xs.size(), 0.0);
+    for (const Fired& f : fired) {
+        for (size_t i = 0; i < xs.size(); ++i) {
+            ys[i] = aggregator_.combine(ys[i], tnorm_.implication(f.weightedFiring, f.term->membership(xs[i])));
         }
     }
 
     std::vector<std::pair<double, double>> curve;
-    curve.reserve(resolution_);
-    for (int i = 0; i < resolution_; ++i) curve.emplace_back(xs[i], ys[i]);
+    curve.reserve(xs.size());
+    for (size_t i = 0; i < xs.size(); ++i) curve.emplace_back(xs[i], ys[i]);
     return curve;
 }
 
 std::unordered_map<std::string, double> MamdaniEngine::evaluate(
     const std::unordered_map<std::string, double>& crispInputs, DefuzzMethod method) const {
+    return evaluateImpl(crispInputs, method, false);
+}
+
+std::unordered_map<std::string, double> MamdaniEngine::evaluateStrict(
+    const std::unordered_map<std::string, double>& crispInputs, DefuzzMethod method) const {
+    return evaluateImpl(crispInputs, method, true);
+}
+
+std::unordered_map<std::string, double> MamdaniEngine::evaluateImpl(
+    const std::unordered_map<std::string, double>& crispInputs, DefuzzMethod method,
+    bool strict) const {
     std::unordered_map<std::string, double> results;
     for (const auto& [name, outVar] : outputs_) {
         const auto curve = aggregatedCurve(name, crispInputs);
+        if (strict &&
+            std::none_of(curve.begin(), curve.end(), [](const auto& p) { return p.second > 0.0; })) {
+            throw std::runtime_error("No rule fired for output '" + name +
+                                     "'; the rule base is too sparse for these inputs");
+        }
         std::vector<double> xs;
         std::vector<double> ys;
         xs.reserve(curve.size());
@@ -93,6 +147,39 @@ double MamdaniEngine::defuzzify(const std::vector<double>& xs, const std::vector
             std::vector<double> moment(xs.size());
             for (size_t i = 0; i < xs.size(); ++i) moment[i] = xs[i] * ys[i];
             return trapz(xs, moment) / totalArea;
+        }
+        case DefuzzMethod::CentroidExact: {
+            // Exact centroid of the piecewise-linear curve through the samples:
+            // each segment is a rectangle or a trapezoid with a closed-form
+            // area and centroid.
+            double sumMomentArea = 0.0;
+            double sumArea = 0.0;
+            for (size_t i = 1; i < xs.size(); ++i) {
+                const double x1 = xs[i - 1];
+                const double x2 = xs[i];
+                const double y1 = ys[i - 1];
+                const double y2 = ys[i];
+                if ((y1 == 0.0 && y2 == 0.0) || x1 == x2) continue;
+                double moment = 0.0;
+                double area = 0.0;
+                if (y1 == y2) {
+                    moment = 0.5 * (x1 + x2);
+                    area = (x2 - x1) * y1;
+                } else if (y1 == 0.0) {
+                    moment = 2.0 / 3.0 * (x2 - x1) + x1;
+                    area = 0.5 * (x2 - x1) * y2;
+                } else if (y2 == 0.0) {
+                    moment = 1.0 / 3.0 * (x2 - x1) + x1;
+                    area = 0.5 * (x2 - x1) * y1;
+                } else {
+                    moment = (2.0 / 3.0 * (x2 - x1) * (y2 + 0.5 * y1)) / (y1 + y2) + x1;
+                    area = 0.5 * (x2 - x1) * (y1 + y2);
+                }
+                sumMomentArea += moment * area;
+                sumArea += area;
+            }
+            if (sumArea <= std::numeric_limits<double>::epsilon()) return fallback;
+            return sumMomentArea / sumArea;
         }
         case DefuzzMethod::Bisector: {
             if (totalArea <= std::numeric_limits<double>::epsilon()) return fallback;

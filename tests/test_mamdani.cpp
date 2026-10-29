@@ -1,6 +1,8 @@
 #include "fuzzylib/inference/mamdani.hpp"
 
 #include "fuzzylib/core/membership.hpp"
+#include <cmath>
+
 #include "minitest.hpp"
 
 using namespace fuzzylib;
@@ -68,6 +70,51 @@ TEST_CASE(defuzz_methods_agree_on_a_single_symmetric_triangle) {
     CHECK_NEAR(centroid, 5.0, 0.05);
     CHECK_NEAR(bisector, 5.0, 0.05);
     CHECK_NEAR(mom, 5.0, 0.05);
+}
+
+namespace {
+// One always-firing rule onto a triangle (0, 2, 10), clipped at 0.6 by a rule weight;
+// the clipped shape has corners at x = 1.2 and x = 5.2, between the 11 grid samples.
+MamdaniEngine buildClippedTriangle(bool refine) {
+    LinguisticVariable in("in", 0.0, 1.0);
+    in.addTerm("any", mf::make<mf::Constant>(1.0));
+    LinguisticVariable out("out", 0.0, 10.0);
+    out.addTerm("tri", mf::make<mf::Triangular>(0.0, 2.0, 10.0));
+    MamdaniEngine engine(TNorm::zadeh(), Aggregator::max(), 11);
+    engine.setRefineAtCuts(refine);
+    engine.addInput(in).addOutput(out);
+    engine.rules().add(Rule(antecedent::is("in", "any"), 0.6).then(MamdaniConsequent{"out", "tri"}));
+    return engine;
+}
+}  // namespace
+
+TEST_CASE(refining_at_cuts_with_exact_centroid_recovers_the_true_clipped_centroid) {
+    // exact centroid of the trapezoid (0,0) (1.2,.6) (5.2,.6) (10,0)
+    const double expected = 17.76 / 4.2;
+    MamdaniEngine refined = buildClippedTriangle(true);
+    CHECK_NEAR(refined.evaluate({{"in", 0.0}}, DefuzzMethod::CentroidExact)["out"], expected, 1e-9);
+
+    // on a coarse 11-point grid with no refinement the clip corners are shaved off
+    MamdaniEngine coarse = buildClippedTriangle(false);
+    CHECK(std::fabs(coarse.evaluate({{"in", 0.0}}, DefuzzMethod::Centroid)["out"] - expected) > 0.02);
+
+    // refinement adds the two corner points to the aggregated curve
+    CHECK(refined.aggregatedCurve("out", {{"in", 0.0}}).size() == 13);
+}
+
+TEST_CASE(evaluate_strict_throws_when_no_rule_fires) {
+    LinguisticVariable in("in", 0.0, 10.0);
+    in.addTerm("low", mf::make<mf::Triangular>(0.0, 1.0, 2.0));
+    LinguisticVariable out("out", 0.0, 10.0);
+    out.addTerm("any", mf::make<mf::Constant>(1.0));
+    MamdaniEngine engine;
+    engine.addInput(in).addOutput(out);
+    engine.rules().add(Rule(antecedent::is("in", "low")).then(MamdaniConsequent{"out", "any"}));
+
+    CHECK_NEAR(engine.evaluateStrict({{"in", 1.0}})["out"], 5.0, 0.1);
+    CHECK_THROWS(engine.evaluateStrict({{"in", 9.0}}));
+    // the lenient evaluate() still falls back to the middle of the universe
+    CHECK_NEAR(engine.evaluate({{"in", 9.0}})["out"], 5.0, 1e-9);
 }
 
 int main() { return minitest::run_all_tests(); }
